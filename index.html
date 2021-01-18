@@ -1,0 +1,434 @@
+<html>
+<body style="padding: 0px; margin: 0px;">
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox = "0 0 1 1" style = "width: 100%; height: 80%;">
+	<style>
+	@font-face{
+		font-family: math-font;
+		src: url("lmmath.otf");
+	}
+
+	#text{
+		font-family: math-font;
+	}
+
+	</style>
+
+	<marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5"
+		markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+		<path d="M 0 0 L 10 5 L 0 10 z"/>
+	</marker>
+	<g id="lines">
+	<g id="current_line"></g>
+	</g>
+	<g id="points">
+	<g id="current_point"></g>
+	</g>
+	<g id="text">
+	<g id="current_text"></g>
+	</g>
+	<g id="highlight"></g>
+</svg>
+
+<script>
+
+global_id = 0;
+graphics_elements = [];
+current_graphics_element = false;
+
+function point(x, y){
+	return {x: x, y: y,
+		coord: function(){
+			return this.x.toString() + "," + this.y.toString();
+		}
+	};
+}
+
+function snap_to_grid(p){
+	return point(Math.round(p.x*10)/10, Math.round(p.y*10)/10);
+}
+
+function point_from_event(e){
+	var pt = svg.createSVGPoint();
+
+	pt.x = e.clientX;
+	pt.y = e.clientY;
+	pt = pt.matrixTransform(svg.getScreenCTM().inverse());
+	return point(pt.x, pt.y);
+}
+
+function line(from, to, color, dashed, begin_arrow, end_arrow){
+	return {
+		type: "line",
+		from: from,
+		to: to,
+		color: color,
+		dashed: dashed,
+		begin_arrow: begin_arrow,
+		end_arrow: end_arrow};
+}
+
+function dot(position, color, empty){
+	return {
+		type: "dot",
+		position: position,
+		color: color,
+		empty: empty};
+}
+
+function text(str, position, color, mathjax){
+	return {
+		type: "text",
+		str: str,
+		position: position,
+		color: color,
+		mathjax: mathjax};
+}
+
+function create_dom(graphics_element){
+	var new_dom;
+	var from_pos;
+	var to_pos;
+	var from_bb;
+	var to_bb;
+	var start_pos;
+	var end_pos;
+	var max_side;
+
+	if(graphics_element.type == "line"){
+		from_pos = graphics_elements[graphics_element.from].position;
+		to_pos = graphics_elements[graphics_element.to].position;
+		from_bb = document.getElementById(graphics_element.from.toString() + "element").getBBox();
+		to_bb = document.getElementById(graphics_element.to.toString() + "element").getBBox();
+
+		if(from_pos == undefined || to_pos == undefined){
+			return;
+		}
+
+		if(graphics_elements[graphics_element.from].type == "text"){
+			from_bb.height *= 0.35;
+		}
+		if(graphics_elements[graphics_element.to].type == "text"){
+			to_bb.height *= 0.35;
+		}
+
+		if(graphics_element.begin_arrow || graphics_elements[graphics_element.from].type == "text"){
+			var angle;
+			angle = Math.atan2(to_pos.y - from_pos.y, to_pos.x - from_pos.x);
+			start_pos = point(from_pos.x + Math.cos(angle)*(from_bb.width + 0.01), from_pos.y + Math.sin(angle)*(from_bb.height + 0.01));
+		} else {
+			start_pos = from_pos;
+		}
+		if(graphics_element.end_arrow || graphics_elements[graphics_element.from].type == "text"){
+			var angle;
+			angle = Math.atan2(from_pos.y - to_pos.y, from_pos.x - to_pos.x);
+			end_pos = point(to_pos.x + Math.cos(angle)*(to_bb.width + 0.01), to_pos.y + Math.sin(angle)*(to_bb.height + 0.01));
+
+		} else {
+			end_pos = to_pos;
+		}
+
+		new_dom = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		new_dom.setAttribute("stroke", graphics_element.color);
+		new_dom.setAttribute("stroke-width", "0.005");
+		if(graphics_element.dashed){
+			new_dom.setAttribute("stroke-dasharray", "0.02");
+		}
+		if(graphics_element.begin_arrow){
+			new_dom.setAttribute("marker-start", "url(#arrow)");
+		}
+		if(graphics_element.end_arrow){
+			new_dom.setAttribute("marker-end", "url(#arrow)");
+		}
+		new_dom.setAttribute("d", "M " + start_pos.coord() + " L " + end_pos.coord());
+		return new_dom;
+	} else if(graphics_element.type == "dot"){
+		new_dom = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+		new_dom.setAttribute("cx", graphics_element.position.x.toString());
+		new_dom.setAttribute("cy", graphics_element.position.y.toString());
+		new_dom.setAttribute("r", "0.02");
+		new_dom.setAttribute("fill", graphics_element.color);
+		return new_dom;
+	} else if(graphics_element.type == "text"){
+		new_dom = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		new_dom.setAttribute("x", graphics_element.position.x.toString());
+		new_dom.setAttribute("y", graphics_element.position.y.toString());
+		new_dom.setAttribute("fill", graphics_element.color);
+		new_dom.setAttribute("dominant-baseline", "central");
+		new_dom.setAttribute("text-anchor", "middle");
+		new_dom.setAttribute("font-size", "0.05");
+		new_dom.innerHTML = graphics_element.str;
+		return new_dom;
+	}
+}
+
+function register(graphics_element){
+	var new_dom = create_dom(graphics_element);
+
+	new_dom.setAttribute("id", global_id.toString() + "element");
+	global_id++;
+	graphics_elements.push(graphics_element);
+	if(graphics_element.type == "line"){
+		document.getElementById("lines").appendChild(new_dom);
+	} else if(graphics_element.type == "dot"){
+		document.getElementById("points").appendChild(new_dom);
+	} else if(graphics_element.type == "text"){
+		document.getElementById("text").appendChild(new_dom);
+	}
+}
+
+function unregister(id){
+	var dom;
+
+	graphics_elements.pop(id);
+	dom = document.getElementById(id.toString() + "element");
+	dom.parentNode.removeChild(dom);
+}
+
+function unregister_dom(dom){
+	unregister(parseInt(dom.id));
+}
+
+function update_point_dom(){
+	var new_dom;
+	var old_dom;
+
+	new_dom = create_dom(dot(last_mouse_pos, dot_color, false));
+	new_dom.setAttribute("id", "current_point");
+	old_dom = document.getElementById("current_point");
+	old_dom.parentNode.replaceChild(new_dom, old_dom);
+}
+
+function update_text_dom(){
+	var new_dom;
+	var old_dom;
+
+	new_dom = create_dom(text(text_str, last_mouse_pos, text_color, text_mathjax));
+	new_dom.setAttribute("id", "current_text");
+	old_dom = document.getElementById("current_text");
+	old_dom.parentNode.replaceChild(new_dom, old_dom);
+}
+
+function update_selection_dom(pos){
+	var best_index = 0;
+	var best_dist = Infinity;
+	var dist;
+	var dom;
+	var new_dom;
+	var bb;
+
+	for(var i = 0; i < global_id; i++){
+		if(graphics_elements[i].type == "dot" || graphics_elements[i].type == "text"){
+			dist = Math.sqrt((pos.x - graphics_elements[i].position.x)*(pos.x - graphics_elements[i].position.x) + 
+					 (pos.y - graphics_elements[i].position.y)*(pos.y - graphics_elements[i].position.y));
+			if(dist < best_dist){
+				best_index = i;
+				best_dist = dist;
+			}
+		}
+	}
+	bb = document.getElementById(best_index.toString() + "element").getBBox();
+	new_dom = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+	new_dom.setAttribute("id", "highlight");
+	new_dom.setAttribute("x", (bb.x - 0.01).toString());
+	new_dom.setAttribute("y", (bb.y - 0.01).toString());
+	new_dom.setAttribute("width", (bb.width + 0.02).toString());
+	new_dom.setAttribute("height", (bb.height + 0.02).toString());
+	new_dom.setAttribute("stroke", "blue");
+	new_dom.setAttribute("stroke-width", "0.002");
+	new_dom.setAttribute("fill", "none");
+	new_dom.setAttribute("rx", "0.005");
+	new_dom.setAttribute("ry", "0.005");
+	dom = document.getElementById("highlight");
+	dom.parentNode.replaceChild(new_dom, dom);
+
+	current_selection = best_index;
+}
+
+function update_line_dom(){
+	var new_dom;
+	var old_dom;
+
+	new_dom = create_dom(line(line_p0, current_selection, line_color, line_dashed, line_begin_arrow, line_end_arrow));
+	new_dom.setAttribute("id", "current_line");
+	old_dom = document.getElementById("current_line");
+	old_dom.parentNode.replaceChild(new_dom, old_dom);
+}
+
+function clear_current_dom(){
+	var keys = ["current_point", "current_line", "current_text", "highlight"];
+
+	for(var i = 0; i < keys.length; i++){
+		new_dom = document.createElementNS("http://www.w3.org/2000/svg", "g");
+		new_dom.setAttribute("id", keys[i]);
+		orig = document.getElementById(keys[i]);
+		orig.parentNode.replaceChild(new_dom, orig);
+	}
+}
+
+function hide_all_menus(){
+	var new_dom;
+	var orig;
+
+	document.getElementById("general_menu").style.display = "none";
+	document.getElementById("line_menu").style.display = "none";
+	document.getElementById("point_menu").style.display = "none";
+	document.getElementById("text_menu").style.display = "none";
+}
+
+function update_mouse(e){
+	var pos = point_from_event(e);
+
+	if(current_state == "point"){
+		if(snap){
+			pos = snap_to_grid(pos);
+		}
+		last_mouse_pos = pos;
+		update_point_dom();
+	} else if(current_state == "line"){
+		update_selection_dom(pos);
+	} else if(current_state == "line_next"){
+		update_selection_dom(pos);
+		update_line_dom();
+	} else if(current_state == "text"){
+		if(snap){
+			pos = snap_to_grid(pos);
+		}
+		last_mouse_pos = pos;
+		update_text_dom();
+	}
+}
+
+function mouse_click(e){
+	var new_dom;
+
+	update_mouse(e);
+
+	if(current_state == "point"){
+		register(dot(last_mouse_pos, dot_color, false));
+		clear_current_dom();
+	} else if(current_state == "line"){
+		line_p0 = current_selection;
+		current_state = "line_next";
+	} else if(current_state == "line_next"){
+		register(line(line_p0, current_selection, line_color, line_dashed, line_begin_arrow, line_end_arrow));
+		clear_current_dom();
+		current_state = "line";
+	} else if(current_state == "text"){
+		register(text(text_str, last_mouse_pos, text_color, text_mathjax));
+		clear_current_dom();
+	}
+}
+
+function set_general(){
+	hide_all_menus();
+	clear_current_dom();
+	document.getElementById("general_menu").style.display = "block";
+	current_state = "general";
+}
+
+function set_line(){
+	hide_all_menus();
+	clear_current_dom();
+	document.getElementById("line_menu").style.display = "block";
+	current_state = "line";
+}
+
+function set_point(){
+	hide_all_menus();
+	clear_current_dom();
+	document.getElementById("point_menu").style.display = "block";
+	current_state = "point";
+}
+
+function set_text(){
+	hide_all_menus();
+	clear_current_dom();
+	document.getElementById("text_menu").style.display = "block";
+	current_state = "text";
+}
+
+function update_snap(){
+	snap = document.getElementById("snap").checked;
+}
+
+function initialize(){
+	var width;
+	var height;
+
+	svg = document.getElementsByTagName("svg")[0];
+	if(svg.clientWidth > svg.clientHeight){
+		svg.viewBox = "0 0 " + (svg.clientWidth/svg.clientHeight).toString() + " 1";
+	} else {
+		svg.viewBox = "0 0 1 " + (svg.clientHeight/svg.clientWidth).toString();
+	}
+	
+	current_state = "general";
+	snap = true;
+	dot_color = "black";
+	line_color = "black";
+	line_dashed = false;
+	line_begin_arrow = false;
+	line_end_arrow = false;
+
+	text_str = "";
+	text_color = "black";
+	text_mathjax = false;
+
+	last_mouse_pos = point(0, 0);
+	svg.addEventListener("mousemove", update_mouse);
+	svg.addEventListener("mousedown", mouse_click);
+	hide_all_menus();
+}
+
+function update_line_info(){
+	line_color = document.getElementById("line_color").value;
+	line_dashed = document.getElementById("dashed").checked;
+	line_begin_arrow = document.getElementById("begin_arrow").checked;
+	line_end_arrow = document.getElementById("end_arrow").checked;
+	if(current_state == "line_next"){
+		update_line_dom();
+	}
+}
+
+function update_point_info(){
+	dot_color = document.getElementById("point_color").value;
+	if(current_state == "point"){
+		update_point_dom();
+	}
+}
+
+function update_text_info(){
+	text_color = document.getElementById("text_color").value;
+	text_str = document.getElementById("text_str").value;
+	text_mathjax = document.getElementById("text_mathjax").checked;
+	if(current_state == "text"){
+		update_text_dom();
+	}
+}
+
+window.addEventListener("load", initialize);
+
+</script>
+
+<div id="menu-bar"><button onclick="set_general();">General</button><button onclick="set_line();">Line</button><button onclick="set_point();">Point</button><button onclick="set_text();">Text</button></div>
+
+<div id="general_menu">
+<input type="checkbox" id="snap" onclick="update_snap();" checked/>Snap to grid
+</div>
+<div id="line_menu">
+<input type="checkbox" id="dashed" onclick="update_line_info();"/>Dashed<br>
+<input type="checkbox" id="begin_arrow" onclick="update_line_info();"/>Arrow from<br>
+<input type="checkbox" id="end_arrow" onclick="update_line_info();"/>Arrow to<br>
+<input id="line_color" onchange="update_line_info();" value="black"/>Color
+</div>
+<div id="point_menu">
+<input id="point_color" onchange="update_point_info();" value="black"/>Color
+</div>
+<div id="text_menu">
+<input id="text_color" onchange="update_text_info();" value="black"/>Color<br>
+<input id="text_str" onchange="update_text_info();" value=""/>Text<br>
+<input type="checkbox" id="text_mathjax" onchange="update_text_info();"/>Mathjax
+</div>
+</body>
+</html>
